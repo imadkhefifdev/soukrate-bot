@@ -1,6 +1,9 @@
 import os
 import asyncio
+import threading
 import requests
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
@@ -49,7 +52,27 @@ app = ApplicationBuilder().token(TOKEN).build()
 # إضافة الهاندلر
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# 🔥 حل مشكلة Python 3.14 (event loop)
+# =========================
+# 🔥 Fake server (حل Render المجاني)
+# =========================
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
+
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    server.serve_forever()
+
+threading.Thread(target=run_server).start()
+
+# =========================
+# 🔥 تشغيل البوت (حل Python 3.14)
+# =========================
+
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
