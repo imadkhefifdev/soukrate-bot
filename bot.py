@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 import requests
 
-TOKEN = "ضع_التوكن_هنا8684287596:AAFkCfJgL2oirY6QbH67baISNjHAf8GjgGQ"
+TOKEN = "8684287596:AAFkCfJgL2oirY6QbH67baISNjHAf8GjgGQ"
 
 # جلب السعر من API
 def get_rate(from_currency, to_currency):
