@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import requests
+import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,15 +15,40 @@ from telegram.ext import (
     ContextTypes,
 )
 
+# =========================
+# 🔐 التوكن
+# =========================
 TOKEN = os.getenv("TOKEN")
 
-# 💰 أسعار السوق السوداء (يمكن تعديلها)
+# =========================
+# 🔐 Firebase
+# =========================
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+firebase_data = json.loads(os.getenv("FIREBASE_KEY"))
+
+cred = credentials.Certificate(firebase_data)
+firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+# =========================
+# 👤 ADMIN
+# =========================
+ADMIN_ID = 123456789  # ضع ID الخاص بك
+
+# =========================
+# 💰 السوق السوداء
+# =========================
 BLACK_MARKET = {
     "usd_dzd": 240,
     "eur_dzd": 260
 }
 
-# API رسمي
+# =========================
+# 📡 API
+# =========================
 def get_rate(from_currency, to_currency):
     key = f"{from_currency.lower()}_{to_currency.lower()}"
 
@@ -34,8 +60,28 @@ def get_rate(from_currency, to_currency):
     data = response.json()
     return data["rates"].get(to_currency.upper())
 
+# =========================
+# 📊 تسجيل المستخدم
+# =========================
+def track_user(user_id):
+    user_ref = db.collection("users").document(str(user_id))
+    doc = user_ref.get()
+
+    if doc.exists:
+        user_ref.update({
+            "count": firestore.Increment(1)
+        })
+    else:
+        user_ref.set({
+            "count": 1
+        })
+
+# =========================
 # 🚀 /start
+# =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_user(update.effective_user.id)
+
     keyboard = [
         [InlineKeyboardButton("💵 USD → DZD", callback_data="usd_dzd")],
         [InlineKeyboardButton("💶 EUR → DZD", callback_data="eur_dzd")],
@@ -49,26 +95,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# 🔘 عند الضغط على زر
+# =========================
+# 🔘 الأزرار
+# =========================
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    track_user(query.from_user.id)
+
     data = query.data
 
     if data == "usd_dzd":
-        result = 1 * get_rate("usd", "dzd")
+        result = get_rate("usd", "dzd")
         await query.edit_message_text(f"💵 1 USD = {result} DZD")
 
     elif data == "eur_dzd":
-        result = 1 * get_rate("eur", "dzd")
+        result = get_rate("eur", "dzd")
         await query.edit_message_text(f"💶 1 EUR = {result} DZD")
 
     elif data == "custom":
         await query.edit_message_text("📌 اكتب مثل:\n100 usd to dzd")
 
-# 🧠 معالجة النصوص
+# =========================
+# 🧠 الرسائل
+# =========================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_user(update.effective_user.id)
+
     text = update.message.text.lower()
 
     try:
@@ -96,15 +150,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(e)
         await update.message.reply_text("❌ خطأ في الإدخال")
 
-# إنشاء التطبيق
+# =========================
+# 📊 الإحصائيات (Admin فقط)
+# =========================
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ هذا الأمر خاص بالإدارة")
+        return
+
+    users = db.collection("users").stream()
+
+    total_users = 0
+    total_messages = 0
+
+    for user in users:
+        data = user.to_dict()
+        total_users += 1
+        total_messages += data.get("count", 0)
+
+    await update.message.reply_text(
+        f"📊 Firebase Stats:\n\n"
+        f"👤 المستخدمين: {total_users}\n"
+        f"💬 الاستخدام: {total_messages}"
+    )
+
+# =========================
+# 🧩 التطبيق
+# =========================
 app = ApplicationBuilder().token(TOKEN).build()
 
-# handlers
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CallbackQueryHandler(button))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+# =========================
 # 🌐 Fake server (Render)
+# =========================
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -118,7 +200,9 @@ def run_server():
 
 threading.Thread(target=run_server).start()
 
+# =========================
 # ⚙️ تشغيل (Python 3.14)
+# =========================
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
